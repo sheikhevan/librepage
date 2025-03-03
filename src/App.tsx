@@ -1,24 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import GetTasks from '@/components/GetTasks.tsx';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  DndContext,
-  useSensor,
-  useSensors,
-  PointerSensor,
-  DragEndEvent,
-  useDraggable
-} from '@dnd-kit/core';
-
+import React, { useState, useEffect, useRef } from 'react';
+import GetTasks from '@/components/GetTasks';
+import GoogleAuthComponent from '@/components/GoogleAuth';
+import { createSwapy, Swapy } from 'swapy'; // Import the Swapy type
 
 interface TaskItem {
   id: string;
@@ -30,190 +13,118 @@ interface TaskItem {
   listName?: string;
 }
 
+// Define a type for the layout data we'll store
+interface LayoutState {
+  [key: string]: string; // Maps widgetId to zoneId
+}
+
+const LAYOUT_STORAGE_KEY = 'taskDashboardLayout';
+
 const App: React.FC = () => {
-  // State variables
-  const [isGapiLoaded, setIsGapiLoaded] = useState<boolean>(false);
-  const [isGisLoaded, setIsGisLoaded] = useState<boolean>(false);
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
   const [taskLists, setTaskLists] = useState<{id: string, title: string}[]>([]);
   const [selectedTaskList, setSelectedTaskList] = useState<string>('');
-  const [tokenClient, setTokenClient] = useState<any>(null);
   const [viewAllTasks, setViewAllTasks] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isOpen, setIsOpen] = useState<boolean>(true);
-  const [position, setPosition] = useState({
-    x: 0,
-    y: 0
-  });
 
+  // Properly type the ref with the correct type or null
+  const swapy = useRef<Swapy | null>(null);
+  const container = useRef<HTMLDivElement | null>(null);
 
-  // Set up DnD sensors
-  const sensors = useSensors(
-      useSensor(PointerSensor, {
-        // Use a small activation distance to make it easier to start dragging
-        activationConstraint: {
-          distance: 5,
-        },
-      })
-  );
+  // Function to load layout from localStorage
+  const loadLayout = (): LayoutState | null => {
+    try {
+      const savedLayout = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (savedLayout) {
+        return JSON.parse(savedLayout);
+      }
+    } catch (error) {
+      console.error('Error loading layout from localStorage:', error);
+    }
+    return null;
+  };
 
-  // Constants
-  const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest';
-  const SCOPES = 'https://www.googleapis.com/auth/tasks';
+  // Function to save layout to localStorage
+  const saveLayout = (layout: LayoutState) => {
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+    } catch (error) {
+      console.error('Error saving layout to localStorage:', error);
+    }
+  };
 
-  // Load the Google API client library
+  // Initialize Swapy when the user is authorized and content is loaded
   useEffect(() => {
-    const script1 = document.createElement('script');
-    script1.src = 'https://apis.google.com/js/api.js';
-    script1.async = true;
-    script1.defer = true;
-    script1.onload = () => initializeGapiClient();
-    document.body.appendChild(script1);
+    if (isAuthorized && !isLoading && container.current) {
+      // Small delay to ensure DOM is fully rendered
+      const timer = setTimeout(() => {
+        // Clean up previous instance if it exists
+        if (swapy.current) {
+          swapy.current.destroy();
+        }
 
-    const script2 = document.createElement('script');
-    script2.src = 'https://accounts.google.com/gsi/client';
-    script2.async = true;
-    script2.defer = true;
-    script2.onload = () => initializeGisClient();
-    document.body.appendChild(script2);
+        // Create new Swapy instance
+        swapy.current = createSwapy(container.current);
 
-    return () => {
-      document.body.removeChild(script1);
-      document.body.removeChild(script2);
-    };
-  }, []);
+        // Try to load saved layout from localStorage
+        const savedLayout = loadLayout();
 
-  // Initialize the Google API client
-  const initializeGapiClient = async () => {
-    try {
-      await (window as any).gapi.load('client', async () => {
-        await (window as any).gapi.client.init({
-          apiKey: import.meta.env.VITE_PUBLIC_GOOGLE_API_KEY,
-          discoveryDocs: [DISCOVERY_DOC],
-        });
-        setIsGapiLoaded(true);
-      });
-    } catch (error) {
-      console.error('Error initializing GAPI client:', error);
-    }
-  };
+        if (savedLayout) {
+          // Apply saved layout
+          Object.entries(savedLayout).forEach(([widgetId, zoneId]) => {
+            try {
+              // For each saved widget position, move it to the corresponding zone
+              const widgetElement = document.querySelector(`[data-swapy-item="${widgetId}"]`);
+              const zoneElement = document.querySelector(`[data-swapy-slot="${zoneId}"]`);
 
-  // Initialize the Google Identity Services client
-  const initializeGisClient = () => {
-    try {
-      const tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: import.meta.env.VITE_PUBLIC_GOOGLE_CLIENT_ID,
-        scope: SCOPES,
-        callback: (response: any) => {
-          if (response.error !== undefined) {
-            throw response;
+              if (widgetElement && zoneElement && swapy.current) {
+                // Using a timeout to ensure Swapy is fully initialized
+                setTimeout(() => {
+                  swapy.current?.moveItem(widgetElement as HTMLElement, zoneElement as HTMLElement);
+                }, 50);
+              }
+            } catch (error) {
+              console.error(`Error applying saved layout for widget ${widgetId}:`, error);
+            }
+          });
+        }
+
+        // Set up event listeners for saving layout
+        swapy.current?.onSwap((event) => {
+          console.log('swap', event);
+
+          // After a swap, save the current layout
+          try {
+            const currentLayout: LayoutState = {};
+
+            // For each widget, find its current zone
+            document.querySelectorAll('[data-swapy-item]').forEach((widget) => {
+              const widgetId = widget.getAttribute('data-swapy-item');
+              // Find the zone that contains this widget
+              const zone = widget.closest('[data-swapy-slot]');
+              const zoneId = zone?.getAttribute('data-swapy-slot');
+
+              if (widgetId && zoneId) {
+                currentLayout[widgetId] = zoneId;
+              }
+            });
+
+            // Save the layout to localStorage
+            saveLayout(currentLayout);
+            console.log('Layout saved:', currentLayout);
+          } catch (error) {
+            console.error('Error saving layout after swap:', error);
           }
-          setIsAuthorized(true);
-          listTaskLists();
-        },
-      });
-      setTokenClient(tokenClient);
-      setIsGisLoaded(true);
-    } catch (error) {
-      console.error('Error initializing GIS client:', error);
+        });
+      }, 100);
+
+      return () => {
+        clearTimeout(timer);
+        swapy.current?.destroy();
+      };
     }
-  };
-
-  // Handle authorization click
-  const handleAuthClick = () => {
-    if (tokenClient) {
-      if ((window as any).gapi.client.getToken() === null) {
-        // Request a new token
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-      } else {
-        // Reuse an existing token
-        tokenClient.requestAccessToken({ prompt: '' });
-      }
-    }
-  };
-
-  // Handle sign out click
-  const handleSignoutClick = () => {
-    const token = (window as any).gapi.client.getToken();
-    if (token !== null) {
-      (window as any).google.accounts.oauth2.revoke(token.access_token);
-      (window as any).gapi.client.setToken('');
-      setIsAuthorized(false);
-      setAllTasks([]);
-      setTaskLists([]);
-      setSelectedTaskList('');
-    }
-  };
-
-  // List all task lists
-  const listTaskLists = async () => {
-    try {
-      setIsLoading(true);
-      const response = await (window as any).gapi.client.tasks.tasklists.list({
-        maxResults: 100,
-      });
-
-      const taskLists = response.result.items || [];
-      if (taskLists.length > 0) {
-        const formattedLists = taskLists.map((list: any) => ({
-          id: list.id,
-          title: list.title,
-        }));
-
-        setTaskLists(formattedLists);
-        setSelectedTaskList(taskLists[0].id);
-
-        // Load all tasks from all lists
-        await loadAllTasks(formattedLists);
-      }
-      setIsLoading(false);
-    } catch (error) {
-      console.error('Error listing task lists:', error);
-      setIsLoading(false);
-    }
-  };
-
-  // Load all tasks from all lists
-  const loadAllTasks = async (lists: {id: string, title: string}[]) => {
-    try {
-      const allTasksPromises = lists.map(list =>
-          fetchTasksForList(list.id, list.title)
-      );
-
-      const tasksArrays = await Promise.all(allTasksPromises);
-      const combinedTasks = tasksArrays.flat();
-
-      setAllTasks(combinedTasks);
-    } catch (error) {
-      console.error('Error loading all tasks:', error);
-    }
-  };
-
-  // Fetch tasks for a specific list
-  const fetchTasksForList = async (listId: string, listTitle: string): Promise<TaskItem[]> => {
-    try {
-      const response = await (window as any).gapi.client.tasks.tasks.list({
-        tasklist: listId,
-        maxResults: 100,
-      });
-
-      const tasks = response.result.items || [];
-
-      return tasks.map((task: any) => ({
-        id: task.id,
-        title: task.title || '(No title)',
-        due: task.due,
-        notes: task.notes,
-        completed: task.completed,
-        listId: listId,
-        listName: listTitle
-      }));
-    } catch (error) {
-      console.error(`Error fetching tasks for list ${listId}:`, error);
-      return [];
-    }
-  };
+  }, [isAuthorized, isLoading]);
 
   // Handle task list selection change
   const handleTaskListChange = (value: string) => {
@@ -272,124 +183,138 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { delta } = event;
+  // Function to handle deleting completed tasks
+  const handleDeleteTasks = async (tasksToDelete: TaskItem[]): Promise<boolean> => {
+    try {
+      // Group tasks by listId for batch processing
+      const tasksByList: Record<string, string[]> = {};
 
-    // Update position based on the drag delta
-    setPosition(prevPosition => ({
-      x: prevPosition.x + delta.x,
-      y: prevPosition.y + delta.y
-    }));
+      tasksToDelete.forEach(task => {
+        if (task.listId) {
+          if (!tasksByList[task.listId]) {
+            tasksByList[task.listId] = [];
+          }
+          tasksByList[task.listId].push(task.id);
+        }
+      });
+
+      // Process each list's tasks
+      const deletePromises = Object.entries(tasksByList).map(async ([listId, taskIds]) => {
+        const deletePromises = taskIds.map(taskId =>
+            (window as any).gapi.client.tasks.tasks.delete({
+              tasklist: listId,
+              task: taskId
+            })
+        );
+
+        return Promise.all(deletePromises);
+      });
+
+      await Promise.all(deletePromises);
+
+      // Update local state by filtering out deleted tasks
+      setAllTasks(prevTasks =>
+          prevTasks.filter(task =>
+              !tasksToDelete.some(deleteTask =>
+                  deleteTask.id === task.id && deleteTask.listId === task.listId
+              )
+          )
+      );
+
+      return true;
+    } catch (error) {
+      console.error('Error deleting tasks:', error);
+      return false;
+    }
   };
 
   return (
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="p-4 max-w-4xl mx-auto relative">
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>LibrePage</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex space-x-2">
-                {(isGapiLoaded && isGisLoaded) && (
-                    <>
-                      {!isAuthorized ? (
-                          <div>
-                            <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Authentication Required</DialogTitle>
-                                  <DialogDescription>
-                                    To integrate Librepage with Google services, sign in with Google.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <DialogFooter>
-                                  <Button onClick={handleAuthClick}>Sign in with Google</Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-                          </div>
-                      ) : (
-                          <Button
-                              variant="destructive"
-                              onClick={handleSignoutClick}
-                          >
-                            Sign Out
-                          </Button>
-                      )}
-                    </>
-                )}
+      <div className="w-full h-screen p-4 flex flex-col">
+        <GoogleAuthComponent
+            setIsAuthorized={setIsAuthorized}
+            setAllTasks={setAllTasks}
+            setTaskLists={setTaskLists}
+            setSelectedTaskList={setSelectedTaskList}
+            setIsLoading={setIsLoading}
+        />
+
+
+        {isLoading && (
+            <div className="text-center py-2">
+              <p>Loading tasks...</p>
+            </div>
+        )}
+
+        {isAuthorized && !isLoading && (
+            <div ref={container} className="flex-1 grid grid-cols-3 grid-rows-2 gap-4 overflow-hidden">
+              <div data-swapy-slot="zone1" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
+                <div data-swapy-item="widget1" className="h-full cursor-move hover:z-50">
+                  <div className="p-2 h-full overflow-auto">
+                    <GetTasks
+                        allTasks={allTasks}
+                        taskLists={taskLists}
+                        selectedTaskList={selectedTaskList}
+                        onTaskListChange={handleTaskListChange}
+                        viewAllTasks={viewAllTasks}
+                        onToggleViewAll={handleToggleViewAll}
+                        onTaskComplete={handleTaskComplete}
+                        onDeleteTasks={handleDeleteTasks}
+                    />
+                  </div>
+                </div>
               </div>
-            </CardContent>
-          </Card>
 
-          {isLoading && (
-              <div className="text-center py-4">
-                <p>Loading tasks...</p>
+              <div data-swapy-slot="zone2" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
+                <div data-swapy-item="widget2" className="h-full cursor-move">
+                  <div className="p-4 h-full bg-gray-50">
+                    <div className="flex items-center justify-center h-4/5">
+                      <p className="text-gray-500">Widget</p>
+                    </div>
+                  </div>
+                </div>
               </div>
-          )}
 
-          {isAuthorized && !isLoading && (
-              <DraggableTaskContainer position={position}>
-                <GetTasks
-                    allTasks={allTasks}
-                    taskLists={taskLists}
-                    selectedTaskList={selectedTaskList}
-                    onTaskListChange={handleTaskListChange}
-                    viewAllTasks={viewAllTasks}
-                    onToggleViewAll={handleToggleViewAll}
-                    onTaskComplete={handleTaskComplete}
-                />
-              </DraggableTaskContainer>
-          )}
-        </div>
-      </DndContext>
-  );
-};
+              <div data-swapy-slot="zone3" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
+                <div data-swapy-item="widget3" className="h-full cursor-move">
+                  <div className="p-4 h-full bg-gray-50">
+                    <div className="flex items-center justify-center h-4/5">
+                      <p className="text-gray-500">Widget</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-// Draggable container component
-interface DraggableTaskContainerProps {
-  children: React.ReactNode;
-  position: { x: number; y: number };
-}
+              <div data-swapy-slot="zone4" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
+                <div data-swapy-item="widget4" className="h-full cursor-move">
+                  <div className="p-4 h-full bg-gray-50">
+                    <div className="flex items-center justify-center h-4/5">
+                      <p className="text-gray-500">Widget</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-const DraggableTaskContainer: React.FC<DraggableTaskContainerProps> = ({ children, position }) => {
-  const { attributes, listeners, setNodeRef } = useDraggable({
-    id: 'tasks-container',
-  });
+              <div data-swapy-slot="zone5" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
+                <div data-swapy-item="widget5" className="h-full cursor-move">
+                  <div className="p-4 h-full bg-gray-50">
+                    <div className="flex items-center justify-center h-4/5">
+                      <p className="text-gray-500">Widget</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-
-  const style = {
-    position: 'absolute' as 'absolute',
-    top: `${position.y}px`,
-    left: `${position.x}px`,
-    zIndex: 1000,
-    // Add a handle area to make it more obvious the component is draggable
-    border: '1px solid #e2e8f0',
-    borderRadius: '0.5rem',
-    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-    background: 'white',
-    touchAction: 'none',
-    width: 'auto', // Allow container to size to content
-    maxWidth: '95vw' // Prevent it from going off-screen
-  };
-
-  return (
-      <div ref={setNodeRef} style={style} className="draggable-task-container">
-        <div
-            {...listeners}
-            {...attributes}
-            className="drag-handle bg-gray-100 p-2 flex justify-end items-center cursor-move border-b border-gray-200"
-        >
-          <div className="flex space-x-1">
-            <div className="w-1 h-4 bg-gray-300 rounded"></div>
-            <div className="w-1 h-4 bg-gray-300 rounded"></div>
-            <div className="w-1 h-4 bg-gray-300 rounded"></div>
-          </div>
-        </div>
-        <div className="p-2">
-          {children}
-        </div>
+              <div data-swapy-slot="zone6" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
+                <div data-swapy-item="widget6" className="h-full cursor-move">
+                  <div className="p-4 h-full bg-gray-50">
+                    <div className="flex items-center justify-center h-4/5">
+                      <p className="text-gray-500">Widget</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+        )}
       </div>
   );
 };
