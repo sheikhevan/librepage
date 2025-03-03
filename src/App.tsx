@@ -1,4 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import GetTasks from '@/components/GetTasks.tsx';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 
 interface TaskItem {
   id: string;
@@ -6,25 +18,29 @@ interface TaskItem {
   due?: string;
   notes?: string;
   completed?: string;
+  listId?: string;
+  listName?: string;
 }
 
-interface TasksApiProps {
-  apiKey: string;
-  clientId: string;
-}
-
-const TasksApi: React.FC<TasksApiProps> = ({ apiKey, clientId }) => {
+const App: React.FC = () => {
+  // State variables
   const [isGapiLoaded, setIsGapiLoaded] = useState<boolean>(false);
   const [isGisLoaded, setIsGisLoaded] = useState<boolean>(false);
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
   const [taskLists, setTaskLists] = useState<{id: string, title: string}[]>([]);
   const [selectedTaskList, setSelectedTaskList] = useState<string>('');
   const [tokenClient, setTokenClient] = useState<any>(null);
+  const [viewAllTasks, setViewAllTasks] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isOpen, setIsOpen] = useState<boolean>(true);
 
+
+  // Constants
   const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest';
-  const SCOPES = 'https://www.googleapis.com/auth/tasks.readonly';
+  const SCOPES = 'https://www.googleapis.com/auth/tasks';
 
+  // Load the Google API client library
   useEffect(() => {
     const script1 = document.createElement('script');
     script1.src = 'https://apis.google.com/js/api.js';
@@ -46,6 +62,7 @@ const TasksApi: React.FC<TasksApiProps> = ({ apiKey, clientId }) => {
     };
   }, []);
 
+  // Initialize the Google API client
   const initializeGapiClient = async () => {
     try {
       await (window as any).gapi.load('client', async () => {
@@ -60,6 +77,7 @@ const TasksApi: React.FC<TasksApiProps> = ({ apiKey, clientId }) => {
     }
   };
 
+  // Initialize the Google Identity Services client
   const initializeGisClient = () => {
     try {
       const tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
@@ -80,6 +98,7 @@ const TasksApi: React.FC<TasksApiProps> = ({ apiKey, clientId }) => {
     }
   };
 
+  // Handle authorization click
   const handleAuthClick = () => {
     if (tokenClient) {
       if ((window as any).gapi.client.getToken() === null) {
@@ -92,13 +111,14 @@ const TasksApi: React.FC<TasksApiProps> = ({ apiKey, clientId }) => {
     }
   };
 
+  // Handle sign out click
   const handleSignoutClick = () => {
     const token = (window as any).gapi.client.getToken();
     if (token !== null) {
       (window as any).google.accounts.oauth2.revoke(token.access_token);
       (window as any).gapi.client.setToken('');
       setIsAuthorized(false);
-      setTasks([]);
+      setAllTasks([]);
       setTaskLists([]);
       setSelectedTaskList('');
     }
@@ -107,135 +127,140 @@ const TasksApi: React.FC<TasksApiProps> = ({ apiKey, clientId }) => {
   // List all task lists
   const listTaskLists = async () => {
     try {
+      setIsLoading(true);
       const response = await (window as any).gapi.client.tasks.tasklists.list({
-        maxResults: 10,
+        maxResults: 100,
       });
 
-      const taskLists = response.result.items;
-      if (taskLists && taskLists.length > 0) {
-        setTaskLists(taskLists.map((list: any) => ({
+      const taskLists = response.result.items || [];
+      if (taskLists.length > 0) {
+        const formattedLists = taskLists.map((list: any) => ({
           id: list.id,
           title: list.title,
-        })));
+        }));
 
-        // Select the first task list by default
+        setTaskLists(formattedLists);
         setSelectedTaskList(taskLists[0].id);
-        listTasks(taskLists[0].id);
+
+        // Load all tasks from all lists
+        await loadAllTasks(formattedLists);
       }
+      setIsLoading(false);
     } catch (error) {
       console.error('Error listing task lists:', error);
+      setIsLoading(false);
     }
   };
 
-  // List tasks for a specific task list
-  const listTasks = async (taskListId: string) => {
+  // Load all tasks from all lists
+  const loadAllTasks = async (lists: {id: string, title: string}[]) => {
+    try {
+      const allTasksPromises = lists.map(list =>
+          fetchTasksForList(list.id, list.title)
+      );
+
+      const tasksArrays = await Promise.all(allTasksPromises);
+      const combinedTasks = tasksArrays.flat();
+
+      setAllTasks(combinedTasks);
+    } catch (error) {
+      console.error('Error loading all tasks:', error);
+    }
+  };
+
+  // Fetch tasks for a specific list
+  const fetchTasksForList = async (listId: string, listTitle: string): Promise<TaskItem[]> => {
     try {
       const response = await (window as any).gapi.client.tasks.tasks.list({
-        tasklist: taskListId,
-        maxResults: 10,
+        tasklist: listId,
+        maxResults: 100,
       });
 
-      const tasks = response.result.items;
-      if (tasks && tasks.length > 0) {
-        setTasks(tasks.map((task: any) => ({
-          id: task.id,
-          title: task.title || '(No title)',
-          due: task.due,
-          notes: task.notes,
-          completed: task.completed,
-        })));
-      } else {
-        setTasks([]);
-      }
+      const tasks = response.result.items || [];
+
+      return tasks.map((task: any) => ({
+        id: task.id,
+        title: task.title || '(No title)',
+        due: task.due,
+        notes: task.notes,
+        completed: task.completed,
+        listId: listId,
+        listName: listTitle
+      }));
     } catch (error) {
-      console.error('Error listing tasks:', error);
+      console.error(`Error fetching tasks for list ${listId}:`, error);
+      return [];
     }
   };
 
   // Handle task list selection change
-  const handleTaskListChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const taskListId = event.target.value;
-    setSelectedTaskList(taskListId);
-    listTasks(taskListId);
+  const handleTaskListChange = (value: string) => {
+    setSelectedTaskList(value);
   };
 
-  // Format date for display
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString();
+  // Toggle between viewing all tasks and a single list
+  const handleToggleViewAll = () => {
+    setViewAllTasks(prev => !prev);
   };
 
   return (
-      <div className="tasks-api-container p-4 max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4">Google Tasks API Quickstart</h1>
-
-        <div className="mb-4 flex space-x-2">
-          {(isGapiLoaded && isGisLoaded) && (
-              <>
-                {!isAuthorized ? (
-                    <button
-                        className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
-                        onClick={handleAuthClick}>
-                      Authorize
-                    </button>
-                ) : (
-                    <button
-                        className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
-                        onClick={handleSignoutClick}>
-                      Sign Out
-                    </button>
-                )}
-              </>
-          )}
-        </div>
-
-        {isAuthorized && (
-            <>
-              {taskLists.length > 0 && (
-                  <div className="mb-4">
-                    <label className="block mb-2 font-medium">
-                      Select Task List:
-                      <select
-                          className="mt-1 block w-full p-2 border border-gray-300 rounded"
-                          value={selectedTaskList}
-                          onChange={handleTaskListChange}
-                      >
-                        {taskLists.map(list => (
-                            <option key={list.id} value={list.id}>
-                              {list.title}
-                            </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
+      <div className="p-4 max-w-4xl mx-auto">
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Google Tasks API Quickstart</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex space-x-2">
+              {(isGapiLoaded && isGisLoaded) && (
+                  <>
+                    {!isAuthorized ? (
+                        <div>
+                          <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Authentication Required</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  To integrate Librepage with Google services, sign in with Google.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <Button onClick={handleAuthClick}>Sign in with Google</Button>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                    ) : (
+                        <Button
+                            variant="destructive"
+                            onClick={handleSignoutClick}
+                        >
+                          Sign Out
+                        </Button>
+                    )}
+                  </>
               )}
+            </div>
+          </CardContent>
+        </Card>
 
-              <div className="task-list">
-                <h2 className="text-xl font-semibold mb-2">Tasks</h2>
-                {tasks.length > 0 ? (
-                    <ul className="border rounded divide-y">
-                      {tasks.map(task => (
-                          <li key={task.id} className="p-3 hover:bg-gray-50">
-                            <div className={`task-item ${task.completed ? 'line-through text-gray-500' : ''}`}>
-                              <h3 className="font-medium">{task.title}</h3>
-                              {task.due && (
-                                  <p className="text-sm text-gray-600">Due: {formatDate(task.due)}</p>
-                              )}
-                              {task.notes && (
-                                  <p className="text-sm mt-1">{task.notes}</p>
-                              )}
-                            </div>
-                          </li>
-                      ))}
-                    </ul>
-                ) : (
-                    <p>No tasks found in this list.</p>
-                )}
-              </div>
-            </>
+        {isLoading && (
+            <div className="text-center py-4">
+              <p>Loading tasks...</p>
+            </div>
+        )}
+
+        {isAuthorized && !isLoading && (
+            <GetTasks
+                allTasks={allTasks}
+                taskLists={taskLists}
+                selectedTaskList={selectedTaskList}
+                onTaskListChange={handleTaskListChange}
+                viewAllTasks={viewAllTasks}
+                onToggleViewAll={handleToggleViewAll}
+            />
         )}
       </div>
   );
 };
 
-export default TasksApi;
+export default App;
