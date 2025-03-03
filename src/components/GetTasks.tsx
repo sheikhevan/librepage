@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
     Card,
     CardContent,
@@ -46,7 +46,7 @@ interface TaskListProps {
     viewAllTasks: boolean;
     onToggleViewAll: () => void;
     onTaskComplete: (taskId: string, listId: string, completed: boolean) => Promise<boolean>;
-    onDeleteTasks?: (tasksToDelete: TaskItem[]) => Promise<boolean>;
+    onDeleteTasks?: (tasksToDelete: TaskItem[]) => Promise<boolean>; // Prop for deleting tasks
 }
 
 const GetTasks: React.FC<TaskListProps> = ({
@@ -60,13 +60,6 @@ const GetTasks: React.FC<TaskListProps> = ({
                                                onDeleteTasks
                                            }) => {
     const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
-    // Keep a local state of tasks to enable instant UI updates
-    const [localTasks, setLocalTasks] = useState<TaskItem[]>(allTasks);
-
-    // Update local tasks when the prop changes
-    React.useEffect(() => {
-        setLocalTasks(allTasks);
-    }, [allTasks]);
 
     const formatDate = (dateString?: string) => {
         if (!dateString) return '';
@@ -74,8 +67,8 @@ const GetTasks: React.FC<TaskListProps> = ({
     };
 
     const displayedTasks = viewAllTasks
-        ? localTasks
-        : localTasks.filter(task => task.listId === selectedTaskList);
+        ? allTasks
+        : allTasks.filter(task => task.listId === selectedTaskList);
 
     const completedTasks = displayedTasks.filter(task => !!task.completed);
 
@@ -86,39 +79,10 @@ const GetTasks: React.FC<TaskListProps> = ({
     };
 
     const handleCheckboxChange = async (taskId: string, listId: string, isCompleted: boolean) => {
-        // Immediately update the UI
-        const newCompletedState = !isCompleted;
-        setLocalTasks(prevTasks =>
-            prevTasks.map(task =>
-                task.id === taskId && task.listId === listId
-                    ? { ...task, completed: newCompletedState ? 'true' : undefined }
-                    : task
-            )
-        );
-
-        // Then make the API call in the background
         try {
-            const success = await onTaskComplete(taskId, listId, newCompletedState);
-            if (!success) {
-                // If the API call fails, revert the UI change
-                setLocalTasks(prevTasks =>
-                    prevTasks.map(task =>
-                        task.id === taskId && task.listId === listId
-                            ? { ...task, completed: isCompleted ? 'true' : undefined }
-                            : task
-                    )
-                );
-                console.error("Failed to update task completion status");
-            }
+            // @ts-ignore
+            const success = await onTaskComplete(taskId, listId, !isCompleted);
         } catch (error) {
-            // If there's an error, revert the UI change
-            setLocalTasks(prevTasks =>
-                prevTasks.map(task =>
-                    task.id === taskId && task.listId === listId
-                        ? { ...task, completed: isCompleted ? 'true' : undefined }
-                        : task
-                )
-            );
             console.error("Error updating task completion status:", error);
         }
     };
@@ -129,23 +93,14 @@ const GetTasks: React.FC<TaskListProps> = ({
             return;
         }
 
-        // Optimistically update UI first
-        const tasksToKeep = localTasks.filter(task => !completedTasks.some(ct => ct.id === task.id && ct.listId === task.listId));
-        setLocalTasks(tasksToKeep);
-
-        // Then perform the API call
         try {
             const success = await onDeleteTasks(completedTasks);
-            if (!success) {
-                // If the API call fails, revert the UI change
-                setLocalTasks(allTasks);
-                console.error("Failed to delete completed tasks");
-            } else {
+            if (success) {
                 console.log(`Successfully deleted ${completedTasks.length} completed tasks`);
+            } else {
+                console.error("Failed to delete completed tasks");
             }
         } catch (error) {
-            // If there's an error, revert the UI change
-            setLocalTasks(allTasks);
             console.error("Error deleting completed tasks:", error);
         }
 
