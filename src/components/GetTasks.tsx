@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     Card,
     CardContent,
@@ -15,6 +15,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { LucideTrash2 } from "lucide-react";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface TaskItem {
     id: string;
@@ -33,6 +45,8 @@ interface TaskListProps {
     onTaskListChange: (value: string) => void;
     viewAllTasks: boolean;
     onToggleViewAll: () => void;
+    onTaskComplete: (taskId: string, listId: string, completed: boolean) => Promise<boolean>;
+    onDeleteTasks?: (tasksToDelete: TaskItem[]) => Promise<boolean>;
 }
 
 const GetTasks: React.FC<TaskListProps> = ({
@@ -41,19 +55,101 @@ const GetTasks: React.FC<TaskListProps> = ({
                                                selectedTaskList,
                                                onTaskListChange,
                                                viewAllTasks,
-                                               onToggleViewAll
+                                               onToggleViewAll,
+                                               onTaskComplete,
+                                               onDeleteTasks
                                            }) => {
+    const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+    // Keep a local state of tasks to enable instant UI updates
+    const [localTasks, setLocalTasks] = useState<TaskItem[]>(allTasks);
+
+    // Update local tasks when the prop changes
+    React.useEffect(() => {
+        setLocalTasks(allTasks);
+    }, [allTasks]);
+
     const formatDate = (dateString?: string) => {
         if (!dateString) return '';
         return new Date(dateString).toLocaleDateString();
     };
 
     const displayedTasks = viewAllTasks
-        ? allTasks
-        : allTasks.filter(task => task.listId === selectedTaskList);
+        ? localTasks
+        : localTasks.filter(task => task.listId === selectedTaskList);
+
+    const completedTasks = displayedTasks.filter(task => !!task.completed);
+
+    const hasCompletedTasks = completedTasks.length > 0;
 
     const handleSelectChange = (value: string) => {
         onTaskListChange(value);
+    };
+
+    const handleCheckboxChange = async (taskId: string, listId: string, isCompleted: boolean) => {
+        // Immediately update the UI
+        const newCompletedState = !isCompleted;
+        setLocalTasks(prevTasks =>
+            prevTasks.map(task =>
+                task.id === taskId && task.listId === listId
+                    ? { ...task, completed: newCompletedState ? 'true' : undefined }
+                    : task
+            )
+        );
+
+        // Then make the API call in the background
+        try {
+            const success = await onTaskComplete(taskId, listId, newCompletedState);
+            if (!success) {
+                // If the API call fails, revert the UI change
+                setLocalTasks(prevTasks =>
+                    prevTasks.map(task =>
+                        task.id === taskId && task.listId === listId
+                            ? { ...task, completed: isCompleted ? 'true' : undefined }
+                            : task
+                    )
+                );
+                console.error("Failed to update task completion status");
+            }
+        } catch (error) {
+            // If there's an error, revert the UI change
+            setLocalTasks(prevTasks =>
+                prevTasks.map(task =>
+                    task.id === taskId && task.listId === listId
+                        ? { ...task, completed: isCompleted ? 'true' : undefined }
+                        : task
+                )
+            );
+            console.error("Error updating task completion status:", error);
+        }
+    };
+
+    const deleteCompleted = async () => {
+        if (!onDeleteTasks) {
+            console.error("Delete functionality not implemented");
+            return;
+        }
+
+        // Optimistically update UI first
+        const tasksToKeep = localTasks.filter(task => !completedTasks.some(ct => ct.id === task.id && ct.listId === task.listId));
+        setLocalTasks(tasksToKeep);
+
+        // Then perform the API call
+        try {
+            const success = await onDeleteTasks(completedTasks);
+            if (!success) {
+                // If the API call fails, revert the UI change
+                setLocalTasks(allTasks);
+                console.error("Failed to delete completed tasks");
+            } else {
+                console.log(`Successfully deleted ${completedTasks.length} completed tasks`);
+            }
+        } catch (error) {
+            // If there's an error, revert the UI change
+            setLocalTasks(allTasks);
+            console.error("Error deleting completed tasks:", error);
+        }
+
+        setShowDeleteConfirm(false);
     };
 
     return (
@@ -61,6 +157,15 @@ const GetTasks: React.FC<TaskListProps> = ({
             <CardHeader className="pb-2">
                 <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-4">
+                        <Button
+                            variant="destructive"
+                            onClick={() => setShowDeleteConfirm(true)}
+                            disabled={!hasCompletedTasks}
+                        >
+                            <LucideTrash2 className="mr-2" />
+                            Delete Completed
+                        </Button>
+
                         <Button
                             variant={viewAllTasks ? "default" : "outline"}
                             onClick={onToggleViewAll}
@@ -95,31 +200,44 @@ const GetTasks: React.FC<TaskListProps> = ({
                     {displayedTasks.length > 0 ? (
                         <ScrollArea className="h-[400px] pr-4">
                             <div className="space-y-1">
-                                {displayedTasks.map(task => (
-                                    <React.Fragment key={`${task.listId}-${task.id}`}>
-                                        <div className={`p-3 hover:bg-gray-100 rounded-md transition-colors duration-150 ${task.completed ? 'opacity-60' : ''}`}>
-                                            <div className="flex flex-col gap-1">
-                                                <h3 className={`font-medium ${task.completed ? 'line-through text-gray-500' : ''}`}>
-                                                    {task.title}
-                                                </h3>
+                                {displayedTasks.map(task => {
+                                    const isCompleted = !!task.completed;
 
-                                                {viewAllTasks && task.listName && (
-                                                    <Badge variant="outline" className="w-fit">
-                                                        {task.listName}
-                                                    </Badge>
-                                                )}
+                                    return (
+                                        <div
+                                            key={`${task.listId}-${task.id}`}
+                                            className={`p-3 hover:bg-gray-100 rounded-md transition-colors duration-150 ${isCompleted ? 'opacity-60' : ''}`}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <Checkbox
+                                                    id={`task-${task.id}`}
+                                                    checked={isCompleted}
+                                                    onCheckedChange={() => handleCheckboxChange(task.id, task.listId || '', isCompleted)}
+                                                    className="mt-1"
+                                                />
+                                                <div className="flex flex-col gap-1">
+                                                    <h3 className={`font-medium ${isCompleted ? 'line-through text-gray-500' : ''}`}>
+                                                        {task.title}
+                                                    </h3>
 
-                                                {task.due && (
-                                                    <p className="text-sm text-gray-600">Due: {formatDate(task.due)}</p>
-                                                )}
+                                                    {viewAllTasks && task.listName && (
+                                                        <Badge variant="outline" className="w-fit">
+                                                            {task.listName}
+                                                        </Badge>
+                                                    )}
 
-                                                {task.notes && (
-                                                    <p className="text-sm mt-1 text-gray-700">{task.notes}</p>
-                                                )}
+                                                    {task.due && (
+                                                        <p className="text-sm text-gray-600">Due: {formatDate(task.due)}</p>
+                                                    )}
+
+                                                    {task.notes && (
+                                                        <p className="text-sm mt-1 text-gray-700">{task.notes}</p>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
-                                    </React.Fragment>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </ScrollArea>
                     ) : (
@@ -127,6 +245,22 @@ const GetTasks: React.FC<TaskListProps> = ({
                     )}
                 </div>
             </CardContent>
+
+            <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Completed Tasks</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will delete {completedTasks.length} completed {completedTasks.length === 1 ? 'task' : 'tasks'}.
+                            This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={deleteCompleted}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Card>
     );
 };

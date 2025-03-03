@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import GetTasks from '@/components/GetTasks.tsx';
 import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
 
 interface TaskItem {
   id: string;
@@ -203,11 +202,58 @@ const App: React.FC = () => {
     setViewAllTasks(prev => !prev);
   };
 
+  // Update task completion status
+  const handleTaskComplete = async (taskId: string, listId: string, completed: boolean): Promise<boolean> => {
+    try {
+      // First, get the current task details
+      const response = await (window as any).gapi.client.tasks.tasks.get({
+        tasklist: listId,
+        task: taskId
+      });
+
+      const taskData = response.result;
+
+      // Update the completion status
+      if (completed) {
+        taskData.status = 'completed';
+        taskData.completed = new Date().toISOString();
+      } else {
+        taskData.status = 'needsAction';
+        delete taskData.completed;
+      }
+
+      // Send the update to Google Tasks API
+      await (window as any).gapi.client.tasks.tasks.update({
+        tasklist: listId,
+        task: taskId,
+        resource: taskData
+      });
+
+      // Update local state
+      setAllTasks(prevTasks =>
+          prevTasks.map(task => {
+            if (task.id === taskId && task.listId === listId) {
+              return {
+                ...task,
+                completed: completed ? new Date().toISOString() : undefined
+              };
+            }
+            return task;
+          })
+      );
+
+      return true;
+    } catch (error) {
+      console.error('Error updating task:', error);
+      return false;
+    }
+  };
+
   return (
       <div className="p-4 max-w-4xl mx-auto">
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Google Tasks API Quickstart</CardTitle>
+            <CardTitle>LibrePage</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex space-x-2">
@@ -215,19 +261,19 @@ const App: React.FC = () => {
                   <>
                     {!isAuthorized ? (
                         <div>
-                          <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Authentication Required</AlertDialogTitle>
-                                <AlertDialogDescription>
+                          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Authentication Required</DialogTitle>
+                                <DialogDescription>
                                   To integrate Librepage with Google services, sign in with Google.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
+                                </DialogDescription>
+                              </DialogHeader>
+                              <DialogFooter>
                                 <Button onClick={handleAuthClick}>Sign in with Google</Button>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                         </div>
                     ) : (
                         <Button
@@ -257,6 +303,7 @@ const App: React.FC = () => {
                 onTaskListChange={handleTaskListChange}
                 viewAllTasks={viewAllTasks}
                 onToggleViewAll={handleToggleViewAll}
+                onTaskComplete={handleTaskComplete}
             />
         )}
       </div>
