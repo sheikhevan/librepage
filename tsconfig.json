@@ -13,13 +13,13 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "emitDeclarationOnly": true,
+    "noEmit": true,
     "jsx": "react-jsx",
     // This setting is crucial
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "composite": true,
+    "noFallthrough": true,
     "baseUrl": ".",
     "paths": {
       "@/*": [
@@ -32,10 +32,10 @@
   ],
   "references": [
     {
-      "path": "./tsconfig.node.json"
-    },
-    {
-      "path": "./tsconfig.app.json"
+      "path": [
+        "./tsconfig.node.json",
+        "./tsconfig.app.json"
+      ]
     }
-  ],
+  ]
 }

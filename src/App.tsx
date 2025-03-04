@@ -1,28 +1,15 @@
-<<<<<<< HEAD
-import React, { useState, useEffect, useRef } from 'react';
-import GetTasks from '@/components/GetTasks';
-import GoogleAuthComponent from '@/components/GoogleAuth';
-import { createSwapy, Swapy } from 'swapy';
-import WidgetsDrawer from '@/components/WidgetsDrawer';
-import { Button } from "@/components/ui/button";
-import { LayoutGrid, Cloud, Newspaper, Calendar } from "lucide-react";
-import {Skeleton} from "@/components/ui/skeleton.tsx";
-import GetClock from "@/components/Clock.tsx";
-=======
 import React, { useState, useEffect } from 'react';
 import GetTasks from '@/components/GetTasks.tsx';
 import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
->>>>>>> parent of 79d7c23 (PLEASE BE PROUD OF ME)
-
 
 interface TaskItem {
   id: string;
@@ -35,56 +22,190 @@ interface TaskItem {
 }
 
 const App: React.FC = () => {
+  // State variables
+  const [isGapiLoaded, setIsGapiLoaded] = useState<boolean>(false);
+  const [isGisLoaded, setIsGisLoaded] = useState<boolean>(false);
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
   const [taskLists, setTaskLists] = useState<{id: string, title: string}[]>([]);
   const [selectedTaskList, setSelectedTaskList] = useState<string>('');
+  const [tokenClient, setTokenClient] = useState<any>(null);
   const [viewAllTasks, setViewAllTasks] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [widgetTypes, setWidgetTypes] = useState<Record<string, string>>({
-    widget1: "Google Tasks",
-    widget2: "Widget",
-    widget3: "Widget",
-    widget4: "Widget",
-    widget5: "Widget",
-    widget6: "Widget"
-  });
+  const [isOpen, setIsOpen] = useState<boolean>(true);
 
-  const swapy = useRef<Swapy | null>(null);
-  const container = useRef<HTMLDivElement | null>(null);
-  const drawerTriggerRef = useRef<HTMLButtonElement>(null);
 
+  // Constants
+  const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest';
+  const SCOPES = 'https://www.googleapis.com/auth/tasks';
+
+  // Load the Google API client library
   useEffect(() => {
-    if (isAuthorized && !isLoading && container.current) {
-      const timer = setTimeout(() => {
-        if (swapy.current) {
-          swapy.current.destroy();
-        }
+    const script1 = document.createElement('script');
+    script1.src = 'https://apis.google.com/js/api.js';
+    script1.async = true;
+    script1.defer = true;
+    script1.onload = () => initializeGapiClient();
+    document.body.appendChild(script1);
 
-        if (container.current) {
-          swapy.current = createSwapy(container.current);
-        }
+    const script2 = document.createElement('script');
+    script2.src = 'https://accounts.google.com/gsi/client';
+    script2.async = true;
+    script2.defer = true;
+    script2.onload = () => initializeGisClient();
+    document.body.appendChild(script2);
 
-      }, 100);
+    return () => {
+      document.body.removeChild(script1);
+      document.body.removeChild(script2);
+    };
+  }, []);
 
-      return () => {
-        clearTimeout(timer);
-        swapy.current?.destroy();
-      };
+  // Initialize the Google API client
+  const initializeGapiClient = async () => {
+    try {
+      await (window as any).gapi.load('client', async () => {
+        await (window as any).gapi.client.init({
+          apiKey: import.meta.env.VITE_PUBLIC_GOOGLE_API_KEY,
+          discoveryDocs: [DISCOVERY_DOC],
+        });
+        setIsGapiLoaded(true);
+      });
+    } catch (error) {
+      console.error('Error initializing GAPI client:', error);
     }
-  }, [isAuthorized, isLoading]);
+  };
 
+  // Initialize the Google Identity Services client
+  const initializeGisClient = () => {
+    try {
+      const tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: import.meta.env.VITE_PUBLIC_GOOGLE_CLIENT_ID,
+        scope: SCOPES,
+        callback: (response: any) => {
+          if (response.error !== undefined) {
+            throw response;
+          }
+          setIsAuthorized(true);
+          listTaskLists();
+        },
+      });
+      setTokenClient(tokenClient);
+      setIsGisLoaded(true);
+    } catch (error) {
+      console.error('Error initializing GIS client:', error);
+    }
+  };
+
+  // Handle authorization click
+  const handleAuthClick = () => {
+    if (tokenClient) {
+      if ((window as any).gapi.client.getToken() === null) {
+        // Request a new token
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      } else {
+        // Reuse an existing token
+        tokenClient.requestAccessToken({ prompt: '' });
+      }
+    }
+  };
+
+  // Handle sign out click
+  const handleSignoutClick = () => {
+    const token = (window as any).gapi.client.getToken();
+    if (token !== null) {
+      (window as any).google.accounts.oauth2.revoke(token.access_token);
+      (window as any).gapi.client.setToken('');
+      setIsAuthorized(false);
+      setAllTasks([]);
+      setTaskLists([]);
+      setSelectedTaskList('');
+    }
+  };
+
+  // List all task lists
+  const listTaskLists = async () => {
+    try {
+      setIsLoading(true);
+      const response = await (window as any).gapi.client.tasks.tasklists.list({
+        maxResults: 100,
+      });
+
+      const taskLists = response.result.items || [];
+      if (taskLists.length > 0) {
+        const formattedLists = taskLists.map((list: any) => ({
+          id: list.id,
+          title: list.title,
+        }));
+
+        setTaskLists(formattedLists);
+        setSelectedTaskList(taskLists[0].id);
+
+        // Load all tasks from all lists
+        await loadAllTasks(formattedLists);
+      }
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error listing task lists:', error);
+      setIsLoading(false);
+    }
+  };
+
+  // Load all tasks from all lists
+  const loadAllTasks = async (lists: {id: string, title: string}[]) => {
+    try {
+      const allTasksPromises = lists.map(list =>
+          fetchTasksForList(list.id, list.title)
+      );
+
+      const tasksArrays = await Promise.all(allTasksPromises);
+      const combinedTasks = tasksArrays.flat();
+
+      setAllTasks(combinedTasks);
+    } catch (error) {
+      console.error('Error loading all tasks:', error);
+    }
+  };
+
+  // Fetch tasks for a specific list
+  const fetchTasksForList = async (listId: string, listTitle: string): Promise<TaskItem[]> => {
+    try {
+      const response = await (window as any).gapi.client.tasks.tasks.list({
+        tasklist: listId,
+        maxResults: 100,
+      });
+
+      const tasks = response.result.items || [];
+
+      return tasks.map((task: any) => ({
+        id: task.id,
+        title: task.title || '(No title)',
+        due: task.due,
+        notes: task.notes,
+        completed: task.completed,
+        listId: listId,
+        listName: listTitle
+      }));
+    } catch (error) {
+      console.error(`Error fetching tasks for list ${listId}:`, error);
+      return [];
+    }
+  };
+
+  // Handle task list selection change
   const handleTaskListChange = (value: string) => {
     setSelectedTaskList(value);
   };
 
+  // Toggle between viewing all tasks and a single list
   const handleToggleViewAll = () => {
     setViewAllTasks(prev => !prev);
   };
 
-<<<<<<< HEAD
+  // Update task completion status
   const handleTaskComplete = async (taskId: string, listId: string, completed: boolean): Promise<boolean> => {
     try {
+      // First, get the current task details
       const response = await (window as any).gapi.client.tasks.tasks.get({
         tasklist: listId,
         task: taskId
@@ -92,6 +213,7 @@ const App: React.FC = () => {
 
       const taskData = response.result;
 
+      // Update the completion status
       if (completed) {
         taskData.status = 'completed';
         taskData.completed = new Date().toISOString();
@@ -100,12 +222,14 @@ const App: React.FC = () => {
         delete taskData.completed;
       }
 
+      // Send the update to Google Tasks API
       await (window as any).gapi.client.tasks.tasks.update({
         tasklist: listId,
         task: taskId,
         resource: taskData
       });
 
+      // Update local state
       setAllTasks(prevTasks =>
           prevTasks.map(task => {
             if (task.id === taskId && task.listId === listId) {
@@ -125,15 +249,11 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeleteTasks = async (tasksToDelete: TaskItem[]): Promise<boolean> => {
-    try {
-      const tasksByList: Record<string, string[]> = {};
-=======
   return (
       <div className="p-4 max-w-4xl mx-auto">
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Google Tasks API Quickstart</CardTitle>
+            <CardTitle>LibrePage</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex space-x-2">
@@ -141,19 +261,19 @@ const App: React.FC = () => {
                   <>
                     {!isAuthorized ? (
                         <div>
-                          <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Authentication Required</AlertDialogTitle>
-                                <AlertDialogDescription>
+                          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Authentication Required</DialogTitle>
+                                <DialogDescription>
                                   To integrate Librepage with Google services, sign in with Google.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
+                                </DialogDescription>
+                              </DialogHeader>
+                              <DialogFooter>
                                 <Button onClick={handleAuthClick}>Sign in with Google</Button>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                         </div>
                     ) : (
                         <Button
@@ -168,76 +288,14 @@ const App: React.FC = () => {
             </div>
           </CardContent>
         </Card>
->>>>>>> parent of 79d7c23 (PLEASE BE PROUD OF ME)
 
-      tasksToDelete.forEach(task => {
-        if (task.listId) {
-          if (!tasksByList[task.listId]) {
-            tasksByList[task.listId] = [];
-          }
-          tasksByList[task.listId].push(task.id);
-        }
-      });
+        {isLoading && (
+            <div className="text-center py-4">
+              <p>Loading tasks...</p>
+            </div>
+        )}
 
-      const deletePromises = Object.entries(tasksByList).map(async ([listId, taskIds]) => {
-        const deletePromises = taskIds.map(taskId =>
-            (window as any).gapi.client.tasks.tasks.delete({
-              tasklist: listId,
-              task: taskId
-            })
-        );
-
-        return Promise.all(deletePromises);
-      });
-
-      await Promise.all(deletePromises);
-
-      setAllTasks(prevTasks =>
-          prevTasks.filter(task =>
-              !tasksToDelete.some(deleteTask =>
-                  deleteTask.id === task.id && deleteTask.listId === task.listId
-              )
-          )
-      );
-
-      return true;
-    } catch (error) {
-      console.error('Error deleting tasks:', error);
-      return false;
-    }
-  };
-
-  const openDrawer = () => {
-    if (drawerTriggerRef.current) {
-      drawerTriggerRef.current.click();
-    }
-  };
-
-  const handleAddWidget = (widgetType: string) => {
-    const emptyWidgetId = Object.entries(widgetTypes)
-        // @ts-ignore
-        .find(([id, type]) => type === "Widget")?.[0];
-
-    if (emptyWidgetId) {
-      setWidgetTypes(prev => ({
-        ...prev,
-        [emptyWidgetId]: widgetType
-      }));
-
-      if (drawerTriggerRef.current) {
-        drawerTriggerRef.current.click();
-      }
-    } else {
-      alert("No empty widgets available. Please remove a widget first.");
-    }
-  };
-
-  const renderWidgetContent = (widgetId: string) => {
-    const widgetType = widgetTypes[widgetId] || "Widget";
-
-    switch (widgetType) {
-      case "Google Tasks":
-        return (
+        {isAuthorized && !isLoading && (
             <GetTasks
                 allTasks={allTasks}
                 taskLists={taskLists}
@@ -245,143 +303,9 @@ const App: React.FC = () => {
                 onTaskListChange={handleTaskListChange}
                 viewAllTasks={viewAllTasks}
                 onToggleViewAll={handleToggleViewAll}
-<<<<<<< HEAD
                 onTaskComplete={handleTaskComplete}
-                onDeleteTasks={handleDeleteTasks}
-=======
->>>>>>> parent of 79d7c23 (PLEASE BE PROUD OF ME)
             />
-        );
-      case "Clock":
-        return (
-            <GetClock />
-        );
-      case "Weather":
-        return (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Cloud size={48} className="mb-4 text-blue-500" />
-              <div className="text-2xl font-semibold">Weather</div>
-              <div className="text-gray-500">Weather information would appear here</div>
-            </div>
-        );
-      case "News (WIP)":
-        return (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Newspaper size={48} className="mb-4 text-blue-500" />
-              <div className="text-2xl font-semibold">News Headlines</div>
-              <div className="text-gray-500">Latest news would appear here</div>
-            </div>
-        );
-      case "Google Calendar (WIP)":
-        return (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Calendar size={48} className="mb-4 text-blue-500" />
-              <div className="text-2xl font-semibold">Calendar</div>
-              <div className="text-gray-500">Calendar events would appear here</div>
-            </div>
-        );
-      default:
-        return (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <p className="text-gray-500 mb-2">Empty Widget</p>
-                <p className="text-sm text-gray-400">Add a widget from the Widget Gallery</p>
-              </div>
-            </div>
-        );
-    }
-  };
-
-  const items = Array.from({ length: 6 });
-
-  return (
-      <div className="w-full h-screen p-4 flex flex-col relative">
-        <GoogleAuthComponent
-            setIsAuthorized={setIsAuthorized}
-            setAllTasks={setAllTasks}
-            setTaskLists={setTaskLists}
-            setSelectedTaskList={setSelectedTaskList}
-            setIsLoading={setIsLoading}
-        />
-
-        {isLoading && (
-            <div className="flex-1 grid grid-cols-3 grid-rows-2 gap-4 overflow-hidden">
-              {items.map((_, index) => (
-                  <Skeleton key={index} className="overflow-auto rounded-lg" />
-              ))}
-            </div>
         )}
-
-        {isAuthorized && !isLoading && (
-            <div ref={container} className="flex-1 grid grid-cols-3 grid-rows-2 gap-4 overflow-hidden">
-              <div data-swapy-slot="zone1" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
-                <div data-swapy-item="widget1" className="h-full cursor-move hover:z-50">
-                  <div className="p-2 h-full overflow-auto">
-                    {renderWidgetContent("widget1")}
-                  </div>
-                </div>
-              </div>
-
-              <div data-swapy-slot="zone2" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
-                <div data-swapy-item="widget2" className="h-full cursor-move">
-                  <div className="p-4 h-full bg-gray-50">
-                    {renderWidgetContent("widget2")}
-                  </div>
-                </div>
-              </div>
-
-              <div data-swapy-slot="zone3" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
-                <div data-swapy-item="widget3" className="h-full cursor-move">
-                  <div className="p-4 h-full bg-gray-50">
-                    {renderWidgetContent("widget3")}
-                  </div>
-                </div>
-              </div>
-
-              <div data-swapy-slot="zone4" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
-                <div data-swapy-item="widget4" className="h-full cursor-move">
-                  <div className="p-4 h-full bg-gray-50">
-                    {renderWidgetContent("widget4")}
-                  </div>
-                </div>
-              </div>
-
-              <div data-swapy-slot="zone5" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
-                <div data-swapy-item="widget5" className="h-full cursor-move">
-                  <div className="p-4 h-full bg-gray-50">
-                    {renderWidgetContent("widget5")}
-                  </div>
-                </div>
-              </div>
-
-              <div data-swapy-slot="zone6" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
-                <div data-swapy-item="widget6" className="h-full cursor-move">
-                  <div className="p-4 h-full bg-gray-50">
-                    {renderWidgetContent("widget6")}
-                  </div>
-                </div>
-              </div>
-            </div>
-        )}
-
-        {isAuthorized && !isLoading && (
-            <div className="absolute bottom-6 left-0 right-0 flex justify-center">
-              <Button
-                  onClick={openDrawer}
-                  className="rounded-full shadow-lg px-6 flex items-center gap-2"
-              >
-                <LayoutGrid size={18} />
-                Widgets
-              </Button>
-            </div>
-        )}
-
-        <div className="hidden">
-          <WidgetsDrawer
-              ref={drawerTriggerRef}
-              onWidgetAdd={handleAddWidget}
-          />
-        </div>
       </div>
   );
 };
