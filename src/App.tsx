@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import React, { useState, useEffect, useRef } from 'react';
 import GetTasks from '@/components/GetTasks';
 import GoogleAuthComponent from '@/components/GoogleAuth';
@@ -7,6 +8,21 @@ import { Button } from "@/components/ui/button";
 import { LayoutGrid, Cloud, Newspaper, Calendar } from "lucide-react";
 import {Skeleton} from "@/components/ui/skeleton.tsx";
 import GetClock from "@/components/Clock.tsx";
+=======
+import React, { useState, useEffect } from 'react';
+import GetTasks from '@/components/GetTasks.tsx';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+>>>>>>> parent of 79d7c23 (PLEASE BE PROUD OF ME)
+
 
 interface TaskItem {
   id: string;
@@ -66,6 +82,7 @@ const App: React.FC = () => {
     setViewAllTasks(prev => !prev);
   };
 
+<<<<<<< HEAD
   const handleTaskComplete = async (taskId: string, listId: string, completed: boolean): Promise<boolean> => {
     try {
       const response = await (window as any).gapi.client.tasks.tasks.get({
@@ -111,6 +128,47 @@ const App: React.FC = () => {
   const handleDeleteTasks = async (tasksToDelete: TaskItem[]): Promise<boolean> => {
     try {
       const tasksByList: Record<string, string[]> = {};
+=======
+  return (
+      <div className="p-4 max-w-4xl mx-auto">
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Google Tasks API Quickstart</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex space-x-2">
+              {(isGapiLoaded && isGisLoaded) && (
+                  <>
+                    {!isAuthorized ? (
+                        <div>
+                          <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Authentication Required</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  To integrate Librepage with Google services, sign in with Google.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <Button onClick={handleAuthClick}>Sign in with Google</Button>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                    ) : (
+                        <Button
+                            variant="destructive"
+                            onClick={handleSignoutClick}
+                        >
+                          Sign Out
+                        </Button>
+                    )}
+                  </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+>>>>>>> parent of 79d7c23 (PLEASE BE PROUD OF ME)
 
       tasksToDelete.forEach(task => {
         if (task.listId) {
@@ -187,8 +245,11 @@ const App: React.FC = () => {
                 onTaskListChange={handleTaskListChange}
                 viewAllTasks={viewAllTasks}
                 onToggleViewAll={handleToggleViewAll}
+<<<<<<< HEAD
                 onTaskComplete={handleTaskComplete}
                 onDeleteTasks={handleDeleteTasks}
+=======
+>>>>>>> parent of 79d7c23 (PLEASE BE PROUD OF ME)
             />
         );
       case "Clock":
