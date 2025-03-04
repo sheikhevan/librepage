@@ -27,6 +27,9 @@ interface GoogleAuthComponentProps {
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
+// Key for storing authentication state in localStorage
+const AUTH_STORAGE_KEY = 'googleTasksAuthState';
+
 const GoogleAuthComponent: React.FC<GoogleAuthComponentProps> = ({
                                                                      setIsAuthorized,
                                                                      setAllTasks,
@@ -69,6 +72,26 @@ const GoogleAuthComponent: React.FC<GoogleAuthComponentProps> = ({
         };
     }, []);
 
+    // Store auth token in localStorage
+    const saveAuthStateToStorage = (token: any) => {
+        try {
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(token));
+        } catch (error) {
+            console.error('Error saving auth state to localStorage:', error);
+        }
+    };
+
+    // Load auth token from localStorage
+    const loadAuthStateFromStorage = () => {
+        try {
+            const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+            return savedAuth ? JSON.parse(savedAuth) : null;
+        } catch (error) {
+            console.error('Error loading auth state from localStorage:', error);
+            return null;
+        }
+    };
+
     // Initialize the Google API client
     const initializeGapiClient = async () => {
         try {
@@ -78,9 +101,37 @@ const GoogleAuthComponent: React.FC<GoogleAuthComponentProps> = ({
                     discoveryDocs: [DISCOVERY_DOC],
                 });
                 setIsGapiLoaded(true);
+
+                // Check for saved token after GAPI is initialized
+                checkSavedAuthToken();
             });
         } catch (error) {
             console.error('Error initializing GAPI client:', error);
+        }
+    };
+
+    // Check for saved auth token and restore session if available
+    const checkSavedAuthToken = async () => {
+        const savedToken = loadAuthStateFromStorage();
+        if (savedToken) {
+            try {
+                // Set the token
+                (window as any).gapi.client.setToken(savedToken);
+
+                // Validate the token is still valid by making a test request
+                await (window as any).gapi.client.tasks.tasklists.list({
+                    maxResults: 1,
+                });
+
+                // If we get here, the token is valid
+                setIsAuthorized(true);
+                listTaskLists();
+            } catch (error) {
+                console.error('Saved token is invalid or expired:', error);
+                // Clear invalid token
+                localStorage.removeItem(AUTH_STORAGE_KEY);
+                (window as any).gapi.client.setToken('');
+            }
         }
     };
 
@@ -94,6 +145,13 @@ const GoogleAuthComponent: React.FC<GoogleAuthComponentProps> = ({
                     if (response.error !== undefined) {
                         throw response;
                     }
+
+                    // Save token to localStorage
+                    const currentToken = (window as any).gapi.client.getToken();
+                    if (currentToken) {
+                        saveAuthStateToStorage(currentToken);
+                    }
+
                     setIsAuthorized(true);
                     listTaskLists();
                 },
@@ -128,6 +186,9 @@ const GoogleAuthComponent: React.FC<GoogleAuthComponentProps> = ({
             setAllTasks([]);
             setTaskLists([]);
             setSelectedTaskList('');
+
+            // Remove token from localStorage on sign out
+            localStorage.removeItem(AUTH_STORAGE_KEY);
         }
     };
 
@@ -156,6 +217,12 @@ const GoogleAuthComponent: React.FC<GoogleAuthComponentProps> = ({
         } catch (error) {
             console.error('Error listing task lists:', error);
             setIsLoading(false);
+
+            // If there's an authentication error, clear the stored token
+            if (error && typeof error === 'object' && 'status' in error && error.status === 401) {
+                localStorage.removeItem(AUTH_STORAGE_KEY);
+                setIsAuthorized(false);
+            }
         }
     };
 

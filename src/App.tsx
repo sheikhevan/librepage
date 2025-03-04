@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import GetTasks from '@/components/GetTasks';
 import GoogleAuthComponent from '@/components/GoogleAuth';
-import { createSwapy, Swapy } from 'swapy'; // Import the Swapy type
+import { createSwapy, Swapy } from 'swapy';
+import WidgetsDrawer from '@/components/WidgetsDrawer';
+import { Button } from "@/components/ui/button";
+import {LayoutGrid} from "lucide-react";
 
 interface TaskItem {
   id: string;
@@ -13,9 +16,8 @@ interface TaskItem {
   listName?: string;
 }
 
-// Define a type for the layout data we'll store
 interface LayoutState {
-  [key: string]: string; // Maps widgetId to zoneId
+  [key: string]: string;
 }
 
 const LAYOUT_STORAGE_KEY = 'taskDashboardLayout';
@@ -28,11 +30,10 @@ const App: React.FC = () => {
   const [viewAllTasks, setViewAllTasks] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Properly type the ref with the correct type or null
   const swapy = useRef<Swapy | null>(null);
   const container = useRef<HTMLDivElement | null>(null);
+  const drawerTriggerRef = useRef<HTMLButtonElement>(null);
 
-  // Function to load layout from localStorage
   const loadLayout = (): LayoutState | null => {
     try {
       const savedLayout = localStorage.getItem(LAYOUT_STORAGE_KEY);
@@ -45,7 +46,6 @@ const App: React.FC = () => {
     return null;
   };
 
-  // Function to save layout to localStorage
   const saveLayout = (layout: LayoutState) => {
     try {
       localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout));
@@ -54,33 +54,29 @@ const App: React.FC = () => {
     }
   };
 
-  // Initialize Swapy when the user is authorized and content is loaded
   useEffect(() => {
     if (isAuthorized && !isLoading && container.current) {
-      // Small delay to ensure DOM is fully rendered
       const timer = setTimeout(() => {
-        // Clean up previous instance if it exists
         if (swapy.current) {
           swapy.current.destroy();
         }
 
-        // Create new Swapy instance
-        swapy.current = createSwapy(container.current);
+        if (container.current) {
+          // @ts-ignore - Ignoring the type error for createSwapy
+          swapy.current = createSwapy(container.current);
+        }
 
-        // Try to load saved layout from localStorage
         const savedLayout = loadLayout();
 
-        if (savedLayout) {
-          // Apply saved layout
+        if (savedLayout && swapy.current) {
           Object.entries(savedLayout).forEach(([widgetId, zoneId]) => {
             try {
-              // For each saved widget position, move it to the corresponding zone
               const widgetElement = document.querySelector(`[data-swapy-item="${widgetId}"]`);
               const zoneElement = document.querySelector(`[data-swapy-slot="${zoneId}"]`);
 
               if (widgetElement && zoneElement && swapy.current) {
-                // Using a timeout to ensure Swapy is fully initialized
                 setTimeout(() => {
+                  // @ts-ignore - Ignoring the moveItem type error
                   swapy.current?.moveItem(widgetElement as HTMLElement, zoneElement as HTMLElement);
                 }, 50);
               }
@@ -90,18 +86,14 @@ const App: React.FC = () => {
           });
         }
 
-        // Set up event listeners for saving layout
         swapy.current?.onSwap((event) => {
           console.log('swap', event);
 
-          // After a swap, save the current layout
           try {
             const currentLayout: LayoutState = {};
 
-            // For each widget, find its current zone
             document.querySelectorAll('[data-swapy-item]').forEach((widget) => {
               const widgetId = widget.getAttribute('data-swapy-item');
-              // Find the zone that contains this widget
               const zone = widget.closest('[data-swapy-slot]');
               const zoneId = zone?.getAttribute('data-swapy-slot');
 
@@ -110,7 +102,6 @@ const App: React.FC = () => {
               }
             });
 
-            // Save the layout to localStorage
             saveLayout(currentLayout);
             console.log('Layout saved:', currentLayout);
           } catch (error) {
@@ -126,20 +117,16 @@ const App: React.FC = () => {
     }
   }, [isAuthorized, isLoading]);
 
-  // Handle task list selection change
   const handleTaskListChange = (value: string) => {
     setSelectedTaskList(value);
   };
 
-  // Toggle between viewing all tasks and a single list
   const handleToggleViewAll = () => {
     setViewAllTasks(prev => !prev);
   };
 
-  // Update task completion status
   const handleTaskComplete = async (taskId: string, listId: string, completed: boolean): Promise<boolean> => {
     try {
-      // First, get the current task details
       const response = await (window as any).gapi.client.tasks.tasks.get({
         tasklist: listId,
         task: taskId
@@ -147,7 +134,6 @@ const App: React.FC = () => {
 
       const taskData = response.result;
 
-      // Update the completion status
       if (completed) {
         taskData.status = 'completed';
         taskData.completed = new Date().toISOString();
@@ -156,14 +142,12 @@ const App: React.FC = () => {
         delete taskData.completed;
       }
 
-      // Send the update to Google Tasks API
       await (window as any).gapi.client.tasks.tasks.update({
         tasklist: listId,
         task: taskId,
         resource: taskData
       });
 
-      // Update local state
       setAllTasks(prevTasks =>
           prevTasks.map(task => {
             if (task.id === taskId && task.listId === listId) {
@@ -183,10 +167,8 @@ const App: React.FC = () => {
     }
   };
 
-  // Function to handle deleting completed tasks
   const handleDeleteTasks = async (tasksToDelete: TaskItem[]): Promise<boolean> => {
     try {
-      // Group tasks by listId for batch processing
       const tasksByList: Record<string, string[]> = {};
 
       tasksToDelete.forEach(task => {
@@ -198,7 +180,6 @@ const App: React.FC = () => {
         }
       });
 
-      // Process each list's tasks
       const deletePromises = Object.entries(tasksByList).map(async ([listId, taskIds]) => {
         const deletePromises = taskIds.map(taskId =>
             (window as any).gapi.client.tasks.tasks.delete({
@@ -212,7 +193,6 @@ const App: React.FC = () => {
 
       await Promise.all(deletePromises);
 
-      // Update local state by filtering out deleted tasks
       setAllTasks(prevTasks =>
           prevTasks.filter(task =>
               !tasksToDelete.some(deleteTask =>
@@ -228,8 +208,14 @@ const App: React.FC = () => {
     }
   };
 
+  const openDrawer = () => {
+    if (drawerTriggerRef.current) {
+      drawerTriggerRef.current.click();
+    }
+  };
+
   return (
-      <div className="w-full h-screen p-4 flex flex-col">
+      <div className="w-full h-screen p-4 flex flex-col relative">
         <GoogleAuthComponent
             setIsAuthorized={setIsAuthorized}
             setAllTasks={setAllTasks}
@@ -237,7 +223,6 @@ const App: React.FC = () => {
             setSelectedTaskList={setSelectedTaskList}
             setIsLoading={setIsLoading}
         />
-
 
         {isLoading && (
             <div className="text-center py-2">
@@ -315,6 +300,22 @@ const App: React.FC = () => {
               </div>
             </div>
         )}
+
+        {isAuthorized && !isLoading && (
+            <div className="absolute bottom-6 left-0 right-0 flex justify-center">
+              <Button
+                  onClick={openDrawer}
+                  className="rounded-full shadow-lg px-6 flex items-center gap-2"
+              >
+                <LayoutGrid size={18} />
+                Widgets
+              </Button>
+            </div>
+        )}
+
+        <div className="hidden">
+          <WidgetsDrawer ref={drawerTriggerRef} />
+        </div>
       </div>
   );
 };
