@@ -6,6 +6,7 @@ import WidgetsDrawer from '@/components/WidgetsDrawer';
 import { Button } from "@/components/ui/button";
 import {LayoutGrid} from "lucide-react";
 
+
 interface TaskItem {
   id: string;
   title: string;
@@ -225,8 +226,10 @@ const App: React.FC = () => {
         />
 
         {isLoading && (
-            <div className="text-center py-2">
-              <p>Loading tasks...</p>
+            <div className="flex items-center justify-center h-screen">
+              <div className="text-center">
+                  <p>Loading...</p>
+              </div>
             </div>
         )}
 
