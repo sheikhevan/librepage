@@ -10,6 +10,15 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DndContext,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  DragEndEvent,
+  useDraggable
+} from '@dnd-kit/core';
+
 
 interface TaskItem {
   id: string;
@@ -33,7 +42,21 @@ const App: React.FC = () => {
   const [viewAllTasks, setViewAllTasks] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isOpen, setIsOpen] = useState<boolean>(true);
+  const [position, setPosition] = useState({
+    x: 0,
+    y: 0
+  });
 
+
+  // Set up DnD sensors
+  const sensors = useSensors(
+      useSensor(PointerSensor, {
+        // Use a small activation distance to make it easier to start dragging
+        activationConstraint: {
+          distance: 5,
+        },
+      })
+  );
 
   // Constants
   const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest';
@@ -249,63 +272,124 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { delta } = event;
+
+    // Update position based on the drag delta
+    setPosition(prevPosition => ({
+      x: prevPosition.x + delta.x,
+      y: prevPosition.y + delta.y
+    }));
+  };
+
   return (
-      <div className="p-4 max-w-4xl mx-auto">
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>LibrePage</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex space-x-2">
-              {(isGapiLoaded && isGisLoaded) && (
-                  <>
-                    {!isAuthorized ? (
-                        <div>
-                          <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Authentication Required</DialogTitle>
-                                <DialogDescription>
-                                  To integrate Librepage with Google services, sign in with Google.
-                                </DialogDescription>
-                              </DialogHeader>
-                              <DialogFooter>
-                                <Button onClick={handleAuthClick}>Sign in with Google</Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                        </div>
-                    ) : (
-                        <Button
-                            variant="destructive"
-                            onClick={handleSignoutClick}
-                        >
-                          Sign Out
-                        </Button>
-                    )}
-                  </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <div className="p-4 max-w-4xl mx-auto relative">
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>LibrePage</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex space-x-2">
+                {(isGapiLoaded && isGisLoaded) && (
+                    <>
+                      {!isAuthorized ? (
+                          <div>
+                            <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Authentication Required</DialogTitle>
+                                  <DialogDescription>
+                                    To integrate Librepage with Google services, sign in with Google.
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <DialogFooter>
+                                  <Button onClick={handleAuthClick}>Sign in with Google</Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
+                      ) : (
+                          <Button
+                              variant="destructive"
+                              onClick={handleSignoutClick}
+                          >
+                            Sign Out
+                          </Button>
+                      )}
+                    </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-        {isLoading && (
-            <div className="text-center py-4">
-              <p>Loading tasks...</p>
-            </div>
-        )}
+          {isLoading && (
+              <div className="text-center py-4">
+                <p>Loading tasks...</p>
+              </div>
+          )}
 
-        {isAuthorized && !isLoading && (
-            <GetTasks
-                allTasks={allTasks}
-                taskLists={taskLists}
-                selectedTaskList={selectedTaskList}
-                onTaskListChange={handleTaskListChange}
-                viewAllTasks={viewAllTasks}
-                onToggleViewAll={handleToggleViewAll}
-                onTaskComplete={handleTaskComplete}
-            />
-        )}
+          {isAuthorized && !isLoading && (
+              <DraggableTaskContainer position={position}>
+                <GetTasks
+                    allTasks={allTasks}
+                    taskLists={taskLists}
+                    selectedTaskList={selectedTaskList}
+                    onTaskListChange={handleTaskListChange}
+                    viewAllTasks={viewAllTasks}
+                    onToggleViewAll={handleToggleViewAll}
+                    onTaskComplete={handleTaskComplete}
+                />
+              </DraggableTaskContainer>
+          )}
+        </div>
+      </DndContext>
+  );
+};
+
+// Draggable container component
+interface DraggableTaskContainerProps {
+  children: React.ReactNode;
+  position: { x: number; y: number };
+}
+
+const DraggableTaskContainer: React.FC<DraggableTaskContainerProps> = ({ children, position }) => {
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: 'tasks-container',
+  });
+
+
+  const style = {
+    position: 'absolute' as 'absolute',
+    top: `${position.y}px`,
+    left: `${position.x}px`,
+    zIndex: 1000,
+    // Add a handle area to make it more obvious the component is draggable
+    border: '1px solid #e2e8f0',
+    borderRadius: '0.5rem',
+    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+    background: 'white',
+    touchAction: 'none',
+    width: 'auto', // Allow container to size to content
+    maxWidth: '95vw' // Prevent it from going off-screen
+  };
+
+  return (
+      <div ref={setNodeRef} style={style} className="draggable-task-container">
+        <div
+            {...listeners}
+            {...attributes}
+            className="drag-handle bg-gray-100 p-2 flex justify-end items-center cursor-move border-b border-gray-200"
+        >
+          <div className="flex space-x-1">
+            <div className="w-1 h-4 bg-gray-300 rounded"></div>
+            <div className="w-1 h-4 bg-gray-300 rounded"></div>
+            <div className="w-1 h-4 bg-gray-300 rounded"></div>
+          </div>
+        </div>
+        <div className="p-2">
+          {children}
+        </div>
       </div>
   );
 };
