@@ -8,7 +8,7 @@ import {
     CarouselNext,
     CarouselPrevious,
 } from "@/components/ui/carousel";
-import { Clock, Cloud, Newspaper, CheckSquare, Calendar, Plus } from "lucide-react";
+import { Clock, Cloud, Newspaper, CheckSquare, Music, Plus } from "lucide-react";
 
 interface WidgetsInsideDrawerProps {
     onWidgetAdd?: (widgetType: string) => void;
@@ -22,7 +22,7 @@ export default function WidgetsInsideDrawer({ onWidgetAdd }: WidgetsInsideDrawer
         { title: "Weather", icon: Cloud },
         { title: "News (WIP)", icon: Newspaper },
         { title: "Google Tasks", icon: CheckSquare },
-        { title: "Google Calendar (WIP)", icon: Calendar }
+        { title: "Spotify (WIP)", icon: Music }
     ];
 
     const handleWidgetClick = (title: string) => {

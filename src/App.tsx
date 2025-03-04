@@ -4,7 +4,9 @@ import GoogleAuthComponent from '@/components/GoogleAuth';
 import { createSwapy, Swapy } from 'swapy';
 import WidgetsDrawer from '@/components/WidgetsDrawer';
 import { Button } from "@/components/ui/button";
-import { LayoutGrid, Clock, Cloud, Newspaper, CheckSquare, Calendar } from "lucide-react";
+import { LayoutGrid, Cloud, Newspaper, Calendar } from "lucide-react";
+import {Skeleton} from "@/components/ui/skeleton.tsx";
+import GetClock from "@/components/Clock.tsx";
 
 interface TaskItem {
   id: string;
@@ -16,12 +18,6 @@ interface TaskItem {
   listName?: string;
 }
 
-interface LayoutState {
-  [key: string]: string;
-}
-
-const LAYOUT_STORAGE_KEY = 'taskDashboardLayout';
-
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
@@ -29,7 +25,6 @@ const App: React.FC = () => {
   const [selectedTaskList, setSelectedTaskList] = useState<string>('');
   const [viewAllTasks, setViewAllTasks] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  // Track widget types for each widget slot
   const [widgetTypes, setWidgetTypes] = useState<Record<string, string>>({
     widget1: "Google Tasks",
     widget2: "Widget",
@@ -43,48 +38,6 @@ const App: React.FC = () => {
   const container = useRef<HTMLDivElement | null>(null);
   const drawerTriggerRef = useRef<HTMLButtonElement>(null);
 
-  // Load widget types from localStorage on initial load
-  useEffect(() => {
-    try {
-      const savedWidgetTypes = localStorage.getItem('widgetTypes');
-      if (savedWidgetTypes) {
-        setWidgetTypes(JSON.parse(savedWidgetTypes));
-      }
-    } catch (error) {
-      console.error('Error loading widget types from localStorage:', error);
-    }
-  }, []);
-
-  // Save widget types to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem('widgetTypes', JSON.stringify(widgetTypes));
-    } catch (error) {
-      console.error('Error saving widget types to localStorage:', error);
-    }
-  }, [widgetTypes]);
-
-  const loadLayout = (): LayoutState | null => {
-    try {
-      const savedLayout = localStorage.getItem(LAYOUT_STORAGE_KEY);
-      if (savedLayout) {
-        return JSON.parse(savedLayout);
-      }
-    } catch (error) {
-      console.error('Error loading layout from localStorage:', error);
-    }
-    return null;
-  };
-
-  const saveLayout = (layout: LayoutState) => {
-    try {
-      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout));
-    } catch (error) {
-      console.error('Error saving layout to localStorage:', error);
-    }
-  };
-
-  // Setup swapy and handle drop events
   useEffect(() => {
     if (isAuthorized && !isLoading && container.current) {
       const timer = setTimeout(() => {
@@ -93,52 +46,9 @@ const App: React.FC = () => {
         }
 
         if (container.current) {
-          // @ts-ignore - Ignoring the type error for createSwapy
           swapy.current = createSwapy(container.current);
         }
 
-        const savedLayout = loadLayout();
-
-        if (savedLayout && swapy.current) {
-          Object.entries(savedLayout).forEach(([widgetId, zoneId]) => {
-            try {
-              const widgetElement = document.querySelector(`[data-swapy-item="${widgetId}"]`);
-              const zoneElement = document.querySelector(`[data-swapy-slot="${zoneId}"]`);
-
-              if (widgetElement && zoneElement && swapy.current) {
-                setTimeout(() => {
-                  // @ts-ignore - Ignoring the moveItem type error
-                  swapy.current?.moveItem(widgetElement as HTMLElement, zoneElement as HTMLElement);
-                }, 50);
-              }
-            } catch (error) {
-              console.error(`Error applying saved layout for widget ${widgetId}:`, error);
-            }
-          });
-        }
-
-        swapy.current?.onSwap((event) => {
-          console.log('swap', event);
-
-          try {
-            const currentLayout: LayoutState = {};
-
-            document.querySelectorAll('[data-swapy-item]').forEach((widget) => {
-              const widgetId = widget.getAttribute('data-swapy-item');
-              const zone = widget.closest('[data-swapy-slot]');
-              const zoneId = zone?.getAttribute('data-swapy-slot');
-
-              if (widgetId && zoneId) {
-                currentLayout[widgetId] = zoneId;
-              }
-            });
-
-            saveLayout(currentLayout);
-            console.log('Layout saved:', currentLayout);
-          } catch (error) {
-            console.error('Error saving layout after swap:', error);
-          }
-        });
       }, 100);
 
       return () => {
@@ -245,20 +155,17 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle adding a widget from the drawer
   const handleAddWidget = (widgetType: string) => {
-    // Find the first empty widget
     const emptyWidgetId = Object.entries(widgetTypes)
+        // @ts-ignore
         .find(([id, type]) => type === "Widget")?.[0];
 
     if (emptyWidgetId) {
-      // Update the widget type
       setWidgetTypes(prev => ({
         ...prev,
         [emptyWidgetId]: widgetType
       }));
 
-      // Close the drawer
       if (drawerTriggerRef.current) {
         drawerTriggerRef.current.click();
       }
@@ -267,7 +174,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Render widget content based on widget type
   const renderWidgetContent = (widgetId: string) => {
     const widgetType = widgetTypes[widgetId] || "Widget";
 
@@ -287,15 +193,7 @@ const App: React.FC = () => {
         );
       case "Clock":
         return (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Clock size={48} className="mb-4 text-blue-500" />
-              <div className="text-2xl font-semibold">
-                {new Date().toLocaleTimeString()}
-              </div>
-              <div className="text-gray-500">
-                {new Date().toLocaleDateString()}
-              </div>
-            </div>
+            <GetClock />
         );
       case "Weather":
         return (
@@ -333,6 +231,8 @@ const App: React.FC = () => {
     }
   };
 
+  const items = Array.from({ length: 6 });
+
   return (
       <div className="w-full h-screen p-4 flex flex-col relative">
         <GoogleAuthComponent
@@ -344,8 +244,10 @@ const App: React.FC = () => {
         />
 
         {isLoading && (
-            <div className="text-center py-2">
-              <p>Loading tasks...</p>
+            <div className="flex-1 grid grid-cols-3 grid-rows-2 gap-4 overflow-hidden">
+              {items.map((_, index) => (
+                  <Skeleton key={index} className="overflow-auto rounded-lg" />
+              ))}
             </div>
         )}
 
