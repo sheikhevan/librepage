@@ -4,8 +4,7 @@ import GoogleAuthComponent from '@/components/GoogleAuth';
 import { createSwapy, Swapy } from 'swapy';
 import WidgetsDrawer from '@/components/WidgetsDrawer';
 import { Button } from "@/components/ui/button";
-import {LayoutGrid} from "lucide-react";
-
+import { LayoutGrid, Clock, Cloud, Newspaper, CheckSquare, Calendar } from "lucide-react";
 
 interface TaskItem {
   id: string;
@@ -30,10 +29,40 @@ const App: React.FC = () => {
   const [selectedTaskList, setSelectedTaskList] = useState<string>('');
   const [viewAllTasks, setViewAllTasks] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  // Track widget types for each widget slot
+  const [widgetTypes, setWidgetTypes] = useState<Record<string, string>>({
+    widget1: "Google Tasks",
+    widget2: "Widget",
+    widget3: "Widget",
+    widget4: "Widget",
+    widget5: "Widget",
+    widget6: "Widget"
+  });
 
   const swapy = useRef<Swapy | null>(null);
   const container = useRef<HTMLDivElement | null>(null);
   const drawerTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Load widget types from localStorage on initial load
+  useEffect(() => {
+    try {
+      const savedWidgetTypes = localStorage.getItem('widgetTypes');
+      if (savedWidgetTypes) {
+        setWidgetTypes(JSON.parse(savedWidgetTypes));
+      }
+    } catch (error) {
+      console.error('Error loading widget types from localStorage:', error);
+    }
+  }, []);
+
+  // Save widget types to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('widgetTypes', JSON.stringify(widgetTypes));
+    } catch (error) {
+      console.error('Error saving widget types to localStorage:', error);
+    }
+  }, [widgetTypes]);
 
   const loadLayout = (): LayoutState | null => {
     try {
@@ -55,6 +84,7 @@ const App: React.FC = () => {
     }
   };
 
+  // Setup swapy and handle drop events
   useEffect(() => {
     if (isAuthorized && !isLoading && container.current) {
       const timer = setTimeout(() => {
@@ -215,6 +245,94 @@ const App: React.FC = () => {
     }
   };
 
+  // Handle adding a widget from the drawer
+  const handleAddWidget = (widgetType: string) => {
+    // Find the first empty widget
+    const emptyWidgetId = Object.entries(widgetTypes)
+        .find(([id, type]) => type === "Widget")?.[0];
+
+    if (emptyWidgetId) {
+      // Update the widget type
+      setWidgetTypes(prev => ({
+        ...prev,
+        [emptyWidgetId]: widgetType
+      }));
+
+      // Close the drawer
+      if (drawerTriggerRef.current) {
+        drawerTriggerRef.current.click();
+      }
+    } else {
+      alert("No empty widgets available. Please remove a widget first.");
+    }
+  };
+
+  // Render widget content based on widget type
+  const renderWidgetContent = (widgetId: string) => {
+    const widgetType = widgetTypes[widgetId] || "Widget";
+
+    switch (widgetType) {
+      case "Google Tasks":
+        return (
+            <GetTasks
+                allTasks={allTasks}
+                taskLists={taskLists}
+                selectedTaskList={selectedTaskList}
+                onTaskListChange={handleTaskListChange}
+                viewAllTasks={viewAllTasks}
+                onToggleViewAll={handleToggleViewAll}
+                onTaskComplete={handleTaskComplete}
+                onDeleteTasks={handleDeleteTasks}
+            />
+        );
+      case "Clock":
+        return (
+            <div className="flex flex-col items-center justify-center h-full">
+              <Clock size={48} className="mb-4 text-blue-500" />
+              <div className="text-2xl font-semibold">
+                {new Date().toLocaleTimeString()}
+              </div>
+              <div className="text-gray-500">
+                {new Date().toLocaleDateString()}
+              </div>
+            </div>
+        );
+      case "Weather":
+        return (
+            <div className="flex flex-col items-center justify-center h-full">
+              <Cloud size={48} className="mb-4 text-blue-500" />
+              <div className="text-2xl font-semibold">Weather</div>
+              <div className="text-gray-500">Weather information would appear here</div>
+            </div>
+        );
+      case "News (WIP)":
+        return (
+            <div className="flex flex-col items-center justify-center h-full">
+              <Newspaper size={48} className="mb-4 text-blue-500" />
+              <div className="text-2xl font-semibold">News Headlines</div>
+              <div className="text-gray-500">Latest news would appear here</div>
+            </div>
+        );
+      case "Google Calendar (WIP)":
+        return (
+            <div className="flex flex-col items-center justify-center h-full">
+              <Calendar size={48} className="mb-4 text-blue-500" />
+              <div className="text-2xl font-semibold">Calendar</div>
+              <div className="text-gray-500">Calendar events would appear here</div>
+            </div>
+        );
+      default:
+        return (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <p className="text-gray-500 mb-2">Empty Widget</p>
+                <p className="text-sm text-gray-400">Add a widget from the Widget Gallery</p>
+              </div>
+            </div>
+        );
+    }
+  };
+
   return (
       <div className="w-full h-screen p-4 flex flex-col relative">
         <GoogleAuthComponent
@@ -226,10 +344,8 @@ const App: React.FC = () => {
         />
 
         {isLoading && (
-            <div className="flex items-center justify-center h-screen">
-              <div className="text-center">
-                  <p>Loading...</p>
-              </div>
+            <div className="text-center py-2">
+              <p>Loading tasks...</p>
             </div>
         )}
 
@@ -238,16 +354,7 @@ const App: React.FC = () => {
               <div data-swapy-slot="zone1" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
                 <div data-swapy-item="widget1" className="h-full cursor-move hover:z-50">
                   <div className="p-2 h-full overflow-auto">
-                    <GetTasks
-                        allTasks={allTasks}
-                        taskLists={taskLists}
-                        selectedTaskList={selectedTaskList}
-                        onTaskListChange={handleTaskListChange}
-                        viewAllTasks={viewAllTasks}
-                        onToggleViewAll={handleToggleViewAll}
-                        onTaskComplete={handleTaskComplete}
-                        onDeleteTasks={handleDeleteTasks}
-                    />
+                    {renderWidgetContent("widget1")}
                   </div>
                 </div>
               </div>
@@ -255,9 +362,7 @@ const App: React.FC = () => {
               <div data-swapy-slot="zone2" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
                 <div data-swapy-item="widget2" className="h-full cursor-move">
                   <div className="p-4 h-full bg-gray-50">
-                    <div className="flex items-center justify-center h-4/5">
-                      <p className="text-gray-500">Widget</p>
-                    </div>
+                    {renderWidgetContent("widget2")}
                   </div>
                 </div>
               </div>
@@ -265,9 +370,7 @@ const App: React.FC = () => {
               <div data-swapy-slot="zone3" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
                 <div data-swapy-item="widget3" className="h-full cursor-move">
                   <div className="p-4 h-full bg-gray-50">
-                    <div className="flex items-center justify-center h-4/5">
-                      <p className="text-gray-500">Widget</p>
-                    </div>
+                    {renderWidgetContent("widget3")}
                   </div>
                 </div>
               </div>
@@ -275,9 +378,7 @@ const App: React.FC = () => {
               <div data-swapy-slot="zone4" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
                 <div data-swapy-item="widget4" className="h-full cursor-move">
                   <div className="p-4 h-full bg-gray-50">
-                    <div className="flex items-center justify-center h-4/5">
-                      <p className="text-gray-500">Widget</p>
-                    </div>
+                    {renderWidgetContent("widget4")}
                   </div>
                 </div>
               </div>
@@ -285,9 +386,7 @@ const App: React.FC = () => {
               <div data-swapy-slot="zone5" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
                 <div data-swapy-item="widget5" className="h-full cursor-move">
                   <div className="p-4 h-full bg-gray-50">
-                    <div className="flex items-center justify-center h-4/5">
-                      <p className="text-gray-500">Widget</p>
-                    </div>
+                    {renderWidgetContent("widget5")}
                   </div>
                 </div>
               </div>
@@ -295,9 +394,7 @@ const App: React.FC = () => {
               <div data-swapy-slot="zone6" className="overflow-auto border-2 border-dashed border-gray-200 rounded-lg">
                 <div data-swapy-item="widget6" className="h-full cursor-move">
                   <div className="p-4 h-full bg-gray-50">
-                    <div className="flex items-center justify-center h-4/5">
-                      <p className="text-gray-500">Widget</p>
-                    </div>
+                    {renderWidgetContent("widget6")}
                   </div>
                 </div>
               </div>
@@ -317,7 +414,10 @@ const App: React.FC = () => {
         )}
 
         <div className="hidden">
-          <WidgetsDrawer ref={drawerTriggerRef} />
+          <WidgetsDrawer
+              ref={drawerTriggerRef}
+              onWidgetAdd={handleAddWidget}
+          />
         </div>
       </div>
   );

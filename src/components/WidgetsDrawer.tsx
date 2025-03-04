@@ -13,30 +13,38 @@ import {
 } from "@/components/ui/drawer"
 import WidgetsInsideDrawer from "@/components/WidgetsInsideDrawer.tsx";
 
+interface WidgetsDrawerProps extends React.ComponentPropsWithoutRef<typeof Button> {
+    onWidgetAdd?: (widgetType: string) => void;
+}
+
 const WidgetsDrawer = React.forwardRef<
     HTMLButtonElement,
-    React.ComponentPropsWithoutRef<typeof Button>
+    WidgetsDrawerProps
 >((props, ref) => {
+    const { onWidgetAdd, ...buttonProps } = props;
+
     return (
         <Drawer>
             <DrawerTrigger asChild>
                 <Button
-                    {...props}
+                    {...buttonProps}
                     ref={ref}
                     variant="outline"
-                    className={`hidden ${props.className || ''}`}
+                    className={`hidden ${buttonProps.className || ''}`}
                 >
-                    {props.children || "Open Drawer"}
+                    {buttonProps.children || "Open Drawer"}
                 </Button>
             </DrawerTrigger>
             <DrawerContent>
                 <div className="mx-auto w-full max-w-sm">
                     <DrawerHeader>
-                        <WidgetsInsideDrawer />
+                        <DrawerTitle>Widget Gallery</DrawerTitle>
+                        <DrawerDescription>Select a widget and click the Add button to add it to your dashboard</DrawerDescription>
+                        <WidgetsInsideDrawer onWidgetAdd={onWidgetAdd} />
                     </DrawerHeader>
                     <DrawerFooter>
                         <DrawerClose asChild>
-                            <Button variant="outline">Cancel</Button>
+                            <Button variant="outline">Close</Button>
                         </DrawerClose>
                     </DrawerFooter>
                 </div>
